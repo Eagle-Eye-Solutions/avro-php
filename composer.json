@@ -1,5 +1,5 @@
 {
-    "name": "flix-tech/avro-php",
+    "name": "eagle-eye-solutions/avro-php",
     "description": "Avro schema encoder/decoder. Fork of rg/avro-php",
     "license": "Apache-2.0",
     "require": {
