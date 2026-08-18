@@ -1,4 +1,6 @@
 <?php
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -25,11 +27,11 @@ require_once('test_helper.php');
 class DatumIOTest extends \PHPUnit\Framework\TestCase
 {
   /**
-   * @dataProvider data_provider
    * @param $schema_json
    * @param $datum
    * @param $binary
    */
+  #[DataProvider('data_provider')]
   function test_datum_round_trip($schema_json, $datum, $binary)
   {
     $schema = AvroSchema::parse($schema_json);
@@ -51,9 +53,7 @@ class DatumIOTest extends \PHPUnit\Framework\TestCase
     $this->assertEquals($datum, $read_datum);
   }
 
-  /**
-   * @dataProvider zigzag_unsigned_right_shift_provider
-   */
+  #[DataProvider('zigzag_unsigned_right_shift_provider')]
   function test_zigzag_unsigned_right_shift(int $expected, int $n, int $x) {
     $this->assertEquals($expected, Zigzag::unsigned_right_shift($n, $x));
   }
@@ -85,7 +85,7 @@ class DatumIOTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function data_provider()
+  static function data_provider()
   {
     return array(array('"null"', null, ''),
 
@@ -176,7 +176,7 @@ class DatumIOTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function default_provider()
+  static function default_provider()
   {
     return array(array('"null"', 'null', null),
                  array('"boolean"', 'true', true),
@@ -199,11 +199,11 @@ class DatumIOTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider default_provider
    * @param $field_schema_json
    * @param $default_json
    * @param $default_value
    */
+  #[DataProvider('default_provider')]
   function test_field_default_value($field_schema_json,
                                     $default_json, $default_value)
   {

@@ -1,4 +1,6 @@
 <?php
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -97,7 +99,7 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function special_vals_provider()
+  static function special_vals_provider()
   {
     self::make_special_vals();
     return array(array(self::DOUBLE_TYPE, self::$DOUBLE_POS_INF, self::$LONG_BITS_POS_INF),
@@ -107,11 +109,11 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider special_vals_provider
    * @param $type
    * @param $val
    * @param $bits
    */
+  #[DataProvider('special_vals_provider')]
   function test_encoding_special_values($type, $val, $bits)
   {
     $this->assert_encode_values($type, $val, $bits);
@@ -120,7 +122,7 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function nan_vals_provider()
+  static function nan_vals_provider()
   {
     self::make_special_vals();
     return array(array(self::DOUBLE_TYPE, self::$DOUBLE_NAN, self::$LONG_BITS_NAN),
@@ -128,11 +130,11 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider nan_vals_provider
    * @param $type
    * @param $val
    * @param $bits
    */
+  #[DataProvider('nan_vals_provider')]
   function test_encoding_nan_values($type, $val, $bits)
   {
     $this->assert_encode_nan_values($type, $val, $bits);
@@ -141,7 +143,7 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function normal_vals_provider()
+  static function normal_vals_provider()
   {
     return array(
                  array(self::DOUBLE_TYPE, (float) -10, "\000\000\000\000\000\000$\300", '000000000000420c'),
@@ -197,11 +199,11 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function float_vals_provider()
+  static function float_vals_provider()
   {
     $ary = array();
 
-    foreach ($this->normal_vals_provider() as $values)
+    foreach (self::normal_vals_provider() as $values)
       if (self::FLOAT_TYPE == $values[0])
         $ary []= array($values[0], $values[1], $values[2]);
 
@@ -211,11 +213,11 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function double_vals_provider()
+  static function double_vals_provider()
   {
     $ary = array();
 
-    foreach ($this->normal_vals_provider() as $values)
+    foreach (self::normal_vals_provider() as $values)
       if (self::DOUBLE_TYPE == $values[0])
         $ary []= array($values[0], $values[1], $values[2]);
 
@@ -224,22 +226,22 @@ class FloatIntEncodingTest extends \PHPUnit\Framework\TestCase
 
 
   /**
-   * @dataProvider float_vals_provider
    * @param $type
    * @param $val
    * @param $bits
    */
+  #[DataProvider('float_vals_provider')]
   function test_encoding_float_values($type, $val, $bits)
   {
     $this->assert_encode_values($type, $val, $bits);
   }
 
   /**
-   * @dataProvider double_vals_provider
    * @param $type
    * @param $val
    * @param $bits
    */
+  #[DataProvider('double_vals_provider')]
   function test_encoding_double_values($type, $val, $bits)
   {
     $this->assert_encode_values($type, $val, $bits);

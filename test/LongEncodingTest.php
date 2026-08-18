@@ -1,4 +1,6 @@
 <?php
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -63,7 +65,6 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider bit_shift_provider
    * @param $val
    * @param $shift
    * @param $expected_lval
@@ -71,6 +72,7 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
    * @param $lbin
    * @param $rbin
    */
+  #[DataProvider('bit_shift_provider')]
   function test_bit_shift($val, $shift, $expected_lval, $expected_rval, $lbin, $rbin)
   {
 
@@ -85,7 +87,6 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider bit_shift_provider
    * @param $val
    * @param $shift
    * @param $expected_lval
@@ -93,6 +94,7 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
    * @param $lbin
    * @param $rbin
    */
+  #[DataProvider('bit_shift_provider')]
   function test_left_shift_gmp($val, $shift,
                                $expected_lval, $expected_rval,
                                $lbin, $rbin)
@@ -104,7 +106,6 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider bit_shift_provider
    * @param $val
    * @param $shift
    * @param $expected_lval
@@ -112,6 +113,7 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
    * @param $lbin
    * @param $rbin
    */
+  #[DataProvider('bit_shift_provider')]
   function test_right_shift_gmp($val, $shift, $expected_lval, $expected_rval,
                                 $lbin, $rbin)
   {
@@ -122,10 +124,10 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider long_provider
    * @param $val
    * @param $expected_bytes
    */
+  #[DataProvider('long_provider')]
   function test_encode_long($val, $expected_bytes)
   {
     $this->skip_64_bit_test_on_32_bit();
@@ -134,10 +136,10 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider long_provider
    * @param $val
    * @param $expected_bytes
    */
+  #[DataProvider('long_provider')]
   function test_gmp_encode_long($val, $expected_bytes)
   {
     $this->skip_if_no_gmp();
@@ -146,10 +148,10 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider long_provider
    * @param $expected_val
    * @param $bytes
    */
+  #[DataProvider('long_provider')]
   function test_decode_long_from_array($expected_val, $bytes)
   {
     $this->skip_64_bit_test_on_32_bit();
@@ -159,10 +161,10 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider long_provider
    * @param $expected_val
    * @param $bytes
    */
+  #[DataProvider('long_provider')]
   function test_gmp_decode_long_from_array($expected_val, $bytes)
   {
     $this->skip_if_no_gmp();
@@ -174,7 +176,7 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function long_provider()
+  static function long_provider()
   {
     return array(array('0', "\x0"),
                  array('1', "\x2"),
@@ -194,7 +196,7 @@ class LongEncodingTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function bit_shift_provider()
+  static function bit_shift_provider()
   {
                       // val shift lval rval
     return array(
