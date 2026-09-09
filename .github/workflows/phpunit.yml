@@ -1,0 +1,215 @@
+name: PHPUnit with coverage
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  run-phpunit:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.4', '8.5']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:2.9.8
+          coverage: none
+
+      - name: PHP syntax check
+        run: |
+          find ./src -type f -name '*.php' -print0 \
+            | xargs -0 -n1 -P"$(nproc)" php -l -n 2>&1 \
+            | (! grep -v 'No syntax errors detected')
+
+      - name: Validate Composer config
+        run: composer validate --strict
+
+      - name: Cache Composer packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ matrix.php }}-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ matrix.php }}-${{ runner.os }}-
+
+      - name: Install dependencies
+        env:
+          COMPOSER_AUTH: >-
+            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run PHPUnit
+        run: vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation
+
+  run-phpunit-with-coverage:
+    runs-on: ubuntu-latest
+    container:
+      image: php:8.2.13-cli
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    steps:
+      - name: Require SONAR_TOKEN
+        if: env.SONAR_TOKEN == ''
+        run: |
+          echo "::error::SONAR_TOKEN secret is not set; cannot run SonarCloud scan."
+          exit 1
+      - name: Cache PCOV build
+        id: pcov-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/lib/php/extensions/no-debug-non-zts-20220829/pcov.so
+            /usr/local/etc/php/conf.d/docker-php-ext-pcov.ini
+          key: pcov-1.0.11-php-8.2.13-cli-${{ runner.os }}
+
+      - name: Cache zip extension build
+        id: zip-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/lib/php/extensions/no-debug-non-zts-20220829/zip.so
+            /usr/local/etc/php/conf.d/docker-php-ext-zip.ini
+          key: zip-php-8.2.13-cli-${{ runner.os }}
+
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git unzip libzip-dev
+
+      - name: Install build tools
+        if: steps.pcov-cache.outputs.cache-hit != 'true' || steps.zip-cache.outputs.cache-hit != 'true'
+        run: apt-get install -y --no-install-recommends $PHPIZE_DEPS
+
+      - name: Build PCOV
+        if: steps.pcov-cache.outputs.cache-hit != 'true'
+        run: |
+          pecl install pcov-1.0.11
+          docker-php-ext-enable pcov
+
+      - name: Build zip extension
+        if: steps.zip-cache.outputs.cache-hit != 'true'
+        run: docker-php-ext-install zip
+
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Composer
+        run: |
+          EXPECTED_SIGNATURE="$(curl -fsS https://composer.github.io/installer.sig)"
+          php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+          ACTUAL_SIGNATURE="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
+          if [ "$EXPECTED_SIGNATURE" != "$ACTUAL_SIGNATURE" ]; then
+            echo "::error::Invalid Composer installer signature"
+            rm composer-setup.php
+            exit 1
+          fi
+          php composer-setup.php --install-dir=/usr/local/bin --filename=composer --version=2.9.8
+          rm composer-setup.php
+
+      - name: Validate Composer config
+        run: composer validate --strict
+
+      - name: Cache Composer packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer
+          key: composer-8.2.13-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-8.2.13-${{ runner.os }}-
+
+      - name: Install dependencies
+        env:
+          COMPOSER_AUTH: >-
+            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run PHPUnit (with coverage)
+        run: php -dpcov.enabled=1 -dpcov.exclude="~vendor~" vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation --coverage-clover coverage.xml --log-junit test-report.xml
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2 # v7
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+
+  rector:
+    # Guard: the committed rector.php must produce no diff. Keeps deprecation
+    # fixes from regressing after the upgrade ticket is merged.
+    name: Rector (dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+        with:
+          php-version: '8.2'
+          tools: composer:2.9.8
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer
+          key: composer-8.2-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-8.2-${{ runner.os }}-
+
+      - name: Install dependencies
+        env:
+          COMPOSER_AUTH: >-
+            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # Guard against a missing config: Rector prompts interactively to
+      # generate one, which in CI hangs until the job times out instead of
+      # failing fast.
+      - name: Require rector.php
+        run: test -f rector.php || { echo "::error::rector.php missing — commit it"; exit 1; }
+
+      - name: Rector dry run
+        run: vendor/bin/rector process --dry-run --no-progress-bar
+
+  audit:
+    # The only job that fails the build on a known advisory. `composer install`
+    # (every other job here) does not audit at all, and `composer update` warns
+    # but exits 0. --locked is required: with no vendor/ present, a plain
+    # `composer audit` reports "No packages - skipping audit" and exits 0.
+    # Reads composer.lock, so it needs no install and no PHP matrix.
+    name: Composer audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+        with:
+          php-version: '8.2'
+          tools: composer:2.9.8
+          coverage: none
+
+      - name: Composer audit
+        env:
+          COMPOSER_AUTH: >-
+            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
+        run: composer audit --locked
