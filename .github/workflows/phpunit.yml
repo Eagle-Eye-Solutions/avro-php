@@ -2,6 +2,9 @@ name: PHPUnit with coverage
 
 on:
   pull_request:
+  push:
+    branches:
+      - master
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,51 +20,82 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.2', '8.4', '8.5']
+        php:
+          - version: '8.2'
+            xdebug: '3.4.0'
+          - version: '8.4'
+            xdebug: '3.4.0'
+          - version: '8.5'
+            xdebug: '3.5.0'
+
+    env:
+      IMAGE: avro-php:${{ matrix.php.version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - name: Setup PHP ${{ matrix.php }}
-        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # DataFileTest exercises every codec in AvroDataIO::valid_codecs(), so the snappy extension
+      # is required. The Dockerfile already builds it from kjdev/php-ext-snappy alongside gmp, zip
+      # and xdebug, and bin/php and the Makefile run the same image locally, so CI uses it too
+      # instead of rebuilding the extension with setup-php.
+      - name: Build PHP ${{ matrix.php.version }} image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
-          php-version: ${{ matrix.php }}
-          tools: composer:2.9.8
-          coverage: none
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            PHP_VERSION=${{ matrix.php.version }}
+            XDEBUG_VERSION=${{ matrix.php.xdebug }}
+          cache-from: type=gha,scope=php-${{ matrix.php.version }}
+          cache-to: type=gha,scope=php-${{ matrix.php.version }},mode=max
 
       - name: PHP syntax check
         run: |
-          find ./src -type f -name '*.php' -print0 \
-            | xargs -0 -n1 -P"$(nproc)" php -l -n 2>&1 \
-            | (! grep -v 'No syntax errors detected')
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            sh -c 'find ./lib ./test ./examples -type f -name "*.php" -print0 \
+              | xargs -0 -n1 -P"$(nproc)" php -l -n 2>&1 \
+              | (! grep -v "No syntax errors detected")'
 
       - name: Validate Composer config
-        run: composer validate --strict
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            composer validate --strict
 
       - name: Cache Composer packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/composer
-          key: composer-${{ matrix.php }}-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          path: ${{ runner.temp }}/composer-cache
+          key: composer-${{ matrix.php.version }}-${{ runner.os }}-${{ hashFiles('composer.lock') }}
           restore-keys: |
-            composer-${{ matrix.php }}-${{ runner.os }}-
+            composer-${{ matrix.php.version }}-${{ runner.os }}-
 
       - name: Install dependencies
-        env:
-          COMPOSER_AUTH: >-
-            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
-        run: composer install --no-interaction --prefer-dist --no-progress
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            -v "$RUNNER_TEMP/composer-cache":/composer-cache -e COMPOSER_CACHE_DIR=/composer-cache "$IMAGE" \
+            composer install --no-interaction --prefer-dist --no-progress
 
+      # build/ is untracked and DataFileTest::setUp creates build/tmp with a non-recursive mkdir,
+      # so the parent directories have to exist before the suite runs.
       - name: Run PHPUnit
-        run: vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation
+        run: |
+          mkdir -p build/tmp build/share/test/schemas build/build/interop/data
+          chmod -R a+w build
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation
 
   run-phpunit-with-coverage:
     runs-on: ubuntu-latest
-    container:
-      image: php:8.2.13-cli
+
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      IMAGE: avro-php:8.2.13
 
     steps:
       - name: Require SONAR_TOKEN
@@ -69,80 +103,58 @@ jobs:
         run: |
           echo "::error::SONAR_TOKEN secret is not set; cannot run SonarCloud scan."
           exit 1
-      - name: Cache PCOV build
-        id: pcov-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            /usr/local/lib/php/extensions/no-debug-non-zts-20220829/pcov.so
-            /usr/local/etc/php/conf.d/docker-php-ext-pcov.ini
-          key: pcov-1.0.11-php-8.2.13-cli-${{ runner.os }}
-
-      - name: Cache zip extension build
-        id: zip-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            /usr/local/lib/php/extensions/no-debug-non-zts-20220829/zip.so
-            /usr/local/etc/php/conf.d/docker-php-ext-zip.ini
-          key: zip-php-8.2.13-cli-${{ runner.os }}
-
-      - name: Install system dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends git unzip libzip-dev
-
-      - name: Install build tools
-        if: steps.pcov-cache.outputs.cache-hit != 'true' || steps.zip-cache.outputs.cache-hit != 'true'
-        run: apt-get install -y --no-install-recommends $PHPIZE_DEPS
-
-      - name: Build PCOV
-        if: steps.pcov-cache.outputs.cache-hit != 'true'
-        run: |
-          pecl install pcov-1.0.11
-          docker-php-ext-enable pcov
-
-      - name: Build zip extension
-        if: steps.zip-cache.outputs.cache-hit != 'true'
-        run: docker-php-ext-install zip
 
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
-      - name: Install Composer
-        run: |
-          EXPECTED_SIGNATURE="$(curl -fsS https://composer.github.io/installer.sig)"
-          php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-          ACTUAL_SIGNATURE="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
-          if [ "$EXPECTED_SIGNATURE" != "$ACTUAL_SIGNATURE" ]; then
-            echo "::error::Invalid Composer installer signature"
-            rm composer-setup.php
-            exit 1
-          fi
-          php composer-setup.php --install-dir=/usr/local/bin --filename=composer --version=2.9.8
-          rm composer-setup.php
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # Pinned to the production PHP version. Coverage comes from the xdebug the Dockerfile
+      # already builds, so no separate PCOV build is needed.
+      - name: Build PHP 8.2.13 image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            PHP_VERSION=8.2.13
+            XDEBUG_VERSION=3.4.0
+          cache-from: type=gha,scope=php-8.2.13
+          cache-to: type=gha,scope=php-8.2.13,mode=max
 
       - name: Validate Composer config
-        run: composer validate --strict
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            composer validate --strict
 
       - name: Cache Composer packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/composer
+          path: ${{ runner.temp }}/composer-cache
           key: composer-8.2.13-${{ runner.os }}-${{ hashFiles('composer.lock') }}
           restore-keys: |
             composer-8.2.13-${{ runner.os }}-
 
       - name: Install dependencies
-        env:
-          COMPOSER_AUTH: >-
-            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
-        run: composer install --no-interaction --prefer-dist --no-progress
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            -v "$RUNNER_TEMP/composer-cache":/composer-cache -e COMPOSER_CACHE_DIR=/composer-cache "$IMAGE" \
+            composer install --no-interaction --prefer-dist --no-progress
 
+      # The checkout is mounted at its host path, so the absolute paths PHPUnit writes into
+      # coverage.xml resolve when the Sonar scanner reads them on the runner.
       - name: Run PHPUnit (with coverage)
-        run: php -dpcov.enabled=1 -dpcov.exclude="~vendor~" vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation --coverage-clover coverage.xml --log-junit test-report.xml
+        run: |
+          mkdir -p build/tmp build/share/test/schemas build/build/interop/data
+          chmod -R a+w build
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            php -d xdebug.mode=coverage vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation \
+              --coverage-clover coverage.xml --log-junit test-report.xml
 
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2 # v7
@@ -174,9 +186,6 @@ jobs:
             composer-8.2-${{ runner.os }}-
 
       - name: Install dependencies
-        env:
-          COMPOSER_AUTH: >-
-            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
         run: composer install --no-interaction --prefer-dist --no-progress
 
       # Guard against a missing config: Rector prompts interactively to
@@ -209,7 +218,4 @@ jobs:
           coverage: none
 
       - name: Composer audit
-        env:
-          COMPOSER_AUTH: >-
-            {"http-basic":{"repo.packagist.com":{"username":"token","password":"${{ secrets.PACKAGIST_AUTHENTICATION_TOKEN }}"}}}
         run: composer audit --locked
