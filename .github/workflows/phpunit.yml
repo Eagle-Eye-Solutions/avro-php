@@ -94,20 +94,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       IMAGE: avro-php:8.2.13
 
     steps:
-      - name: Require SONAR_TOKEN
-        if: env.SONAR_TOKEN == ''
-        run: |
-          echo "::error::SONAR_TOKEN secret is not set; cannot run SonarCloud scan."
-          exit 1
-
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -146,8 +137,6 @@ jobs:
             -v "$RUNNER_TEMP/composer-cache":/composer-cache -e COMPOSER_CACHE_DIR=/composer-cache "$IMAGE" \
             composer install --no-interaction --prefer-dist --no-progress
 
-      # The checkout is mounted at its host path, so the absolute paths PHPUnit writes into
-      # coverage.xml resolve when the Sonar scanner reads them on the runner.
       - name: Run PHPUnit (with coverage)
         run: |
           mkdir -p build/tmp build/share/test/schemas build/build/interop/data
@@ -155,11 +144,6 @@ jobs:
           docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
             php -d xdebug.mode=coverage vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation \
               --coverage-clover coverage.xml --log-junit test-report.xml
-
-      - name: SonarCloud scan
-        uses: SonarSource/sonarqube-scan-action@c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2 # v7
-        env:
-          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
 
   rector:
     # Guard: the committed rector.php must produce no diff. Keeps deprecation
