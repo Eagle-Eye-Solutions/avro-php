@@ -6,7 +6,7 @@ MAKEFLAGS =+ -rR --warn-undefined-variables
 COMPOSER ?= bin/composer.phar
 COMPOSER_VERSION ?= 2.8.4
 PHP ?= bin/php
-PHP_VERSION ?= 8.3
+PHP_VERSION ?= 8.2.13
 XDEBUG_VERSION ?= 3.4.0
 
 export
