@@ -46,7 +46,6 @@ use Rector\Renaming\ValueObject\RenameCast;
 
 return RectorConfig::configure()
     ->withPhpVersion(PhpVersion::PHP_85)
-    ->withImportNames(importShortClasses: false)
     ->withPaths([
         __DIR__ . '/lib',
         __DIR__ . '/test',
@@ -84,6 +83,11 @@ return RectorConfig::configure()
         OrdSingleByteRector::class,
         // PHP 8.5: deprecated backtick operator — use shell_exec() instead
         ShellExecFunctionCallOverBackticksRector::class,
+    ])
+    ->withSkip([
+        // str_split() defaults to a split length of 1, so every $b here is already a single
+        // byte and ord() raises no deprecation. The rule stays on for the rest of the tree.
+        OrdSingleByteRector::class => [__DIR__ . '/lib/avro/debug.php'],
     ])
     ->withConfiguredRule(RemoveFuncCallArgRector::class, [
         // PHP 8.5: deprecated key_length parameter of openssl_pkey_derive()
