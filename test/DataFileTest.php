@@ -1,4 +1,6 @@
 <?php
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -74,7 +76,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     $this->remove_data_files();
   }
 
-  public function provider()
+  public static function provider()
   {
     $values = [];
     foreach (AvroDataIO::valid_codecs() as $codec) {
@@ -83,9 +85,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     return $values;
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_write_read_nothing_round_trip($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-wr-nothing-null-%s.avr', $codec));
@@ -99,9 +99,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     $this->assertEmpty($data);
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_write_read_null_round_trip($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-wr-null-%s.avr', $codec));
@@ -118,9 +116,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     $this->assertEquals($data, $read_data);
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_write_read_string_round_trip($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-wr-str-%s.avr', $codec));
@@ -137,9 +133,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     $this->assertEquals($data, $read_data);
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_write_read_round_trip($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-wr-int-%s.avr', $codec));
@@ -157,9 +151,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     $this->assertEquals($data, $read_data);
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_write_read_true_round_trip($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-wr-true-%s.avr', $codec));
@@ -176,9 +168,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     $this->assertEquals($datum, $read_data);
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_write_read_false_round_trip($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-wr-false-%s.avr', $codec));
@@ -195,9 +185,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
     $this->assertEquals($datum, $read_data);
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_write_read_int_array_round_trip($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-wr-int-ary-%s.avr', $codec));
@@ -216,9 +204,7 @@ class DataFileTest extends \PHPUnit\Framework\TestCase
                                 json_encode($data), json_encode($read_data)));
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_differing_schemas_with_primitives($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-prim-%s.avr', $codec));
@@ -255,9 +241,7 @@ JSON;
     }
   }
 
-  /**
-   * @dataProvider provider
-   */
+  #[DataProvider('provider')]
   public function test_differing_schemas_with_complex_objects($codec)
   {
     $data_file = $this->add_data_file(sprintf('data-complex-%s.avr', $codec));
