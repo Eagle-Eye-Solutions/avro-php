@@ -1,4 +1,6 @@
 <?php
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -480,7 +482,7 @@ class SchemaTest extends \PHPUnit\Framework\TestCase
     $this->assertEquals(json_decode('"boolean"'), 'boolean');
   }
 
-  function parse_bad_json_provider()
+  static function parse_bad_json_provider()
   {
     return array(
       // Valid
@@ -494,9 +496,7 @@ class SchemaTest extends \PHPUnit\Framework\TestCase
     );
   }
 
-  /**
-   * @dataProvider parse_bad_json_provider
-   */
+  #[DataProvider('parse_bad_json_provider')]
   function test_parse_bad_json($json, $failure)
   {
     if (defined('HHVM_VERSION'))
@@ -518,7 +518,7 @@ class SchemaTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function schema_examples_provider()
+  static function schema_examples_provider()
   {
     self::make_examples();
     $ary = array();
@@ -528,9 +528,9 @@ class SchemaTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider schema_examples_provider
    * @param $example
    */
+  #[DataProvider('schema_examples_provider')]
   function test_parse($example)
   {
     $schema_string = $example->schema_string;

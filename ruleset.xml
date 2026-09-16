@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<ruleset name="Eagle Eye">
+    <description>The Eagle Eye coding standard.</description>
+    <rule ref="PSR1"/>
+    <rule ref="PSR12"/>
+</ruleset>

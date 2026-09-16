@@ -1,0 +1,205 @@
+name: PHPUnit with coverage
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  run-phpunit:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - version: '8.2'
+            xdebug: '3.4.0'
+          - version: '8.4'
+            xdebug: '3.4.0'
+          - version: '8.5'
+            xdebug: '3.5.0'
+
+    env:
+      IMAGE: avro-php:${{ matrix.php.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # DataFileTest exercises every codec in AvroDataIO::valid_codecs(), so the snappy extension
+      # is required. The Dockerfile already builds it from kjdev/php-ext-snappy alongside gmp, zip
+      # and xdebug, and bin/php and the Makefile run the same image locally, so CI uses it too
+      # instead of rebuilding the extension with setup-php.
+      - name: Build PHP ${{ matrix.php.version }} image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            PHP_VERSION=${{ matrix.php.version }}
+            XDEBUG_VERSION=${{ matrix.php.xdebug }}
+          cache-from: type=gha,scope=php-${{ matrix.php.version }}
+          cache-to: type=gha,scope=php-${{ matrix.php.version }},mode=max
+
+      - name: PHP syntax check
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            sh -c 'find ./lib ./test ./examples -type f -name "*.php" -print0 \
+              | xargs -0 -n1 -P"$(nproc)" php -l -n 2>&1 \
+              | (! grep -v "No syntax errors detected")'
+
+      - name: Validate Composer config
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            composer validate --strict
+
+      - name: Cache Composer packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/composer-cache
+          key: composer-${{ matrix.php.version }}-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ matrix.php.version }}-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            -v "$RUNNER_TEMP/composer-cache":/composer-cache -e COMPOSER_CACHE_DIR=/composer-cache "$IMAGE" \
+            composer install --no-interaction --prefer-dist --no-progress
+
+      # build/ is untracked and DataFileTest::setUp creates build/tmp with a non-recursive mkdir,
+      # so the parent directories have to exist before the suite runs.
+      - name: Run PHPUnit
+        run: |
+          mkdir -p build/tmp build/share/test/schemas build/build/interop/data
+          chmod -R a+w build
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation
+
+  run-phpunit-with-coverage:
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE: avro-php:8.2.13
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # Pinned to the production PHP version. Coverage comes from the xdebug the Dockerfile
+      # already builds, so no separate PCOV build is needed.
+      - name: Build PHP 8.2.13 image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            PHP_VERSION=8.2.13
+            XDEBUG_VERSION=3.4.0
+          cache-from: type=gha,scope=php-8.2.13
+          cache-to: type=gha,scope=php-8.2.13,mode=max
+
+      - name: Validate Composer config
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            composer validate --strict
+
+      - name: Cache Composer packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/composer-cache
+          key: composer-8.2.13-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-8.2.13-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            -v "$RUNNER_TEMP/composer-cache":/composer-cache -e COMPOSER_CACHE_DIR=/composer-cache "$IMAGE" \
+            composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run PHPUnit (with coverage)
+        run: |
+          mkdir -p build/tmp build/share/test/schemas build/build/interop/data
+          chmod -R a+w build
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            php -d xdebug.mode=coverage vendor/bin/phpunit --fail-on-deprecation --fail-on-phpunit-deprecation \
+              --coverage-clover coverage.xml --log-junit test-report.xml
+
+  rector:
+    # Guard: the committed rector.php must produce no diff. Keeps deprecation
+    # fixes from regressing after the upgrade ticket is merged.
+    name: Rector (dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+        with:
+          php-version: '8.2'
+          tools: composer:2.9.8
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer
+          key: composer-8.2-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-8.2-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # Guard against a missing config: Rector prompts interactively to
+      # generate one, which in CI hangs until the job times out instead of
+      # failing fast.
+      - name: Require rector.php
+        run: test -f rector.php || { echo "::error::rector.php missing — commit it"; exit 1; }
+
+      - name: Rector dry run
+        run: vendor/bin/rector process --dry-run --no-progress-bar
+
+  audit:
+    # The only job that fails the build on a known advisory. `composer install`
+    # (every other job here) does not audit at all, and `composer update` warns
+    # but exits 0. --locked is required: with no vendor/ present, a plain
+    # `composer audit` reports "No packages - skipping audit" and exits 0.
+    # Reads composer.lock, so it needs no install and no PHP matrix.
+    name: Composer audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+        with:
+          php-version: '8.2'
+          tools: composer:2.9.8
+          coverage: none
+
+      - name: Composer audit
+        run: composer audit --locked

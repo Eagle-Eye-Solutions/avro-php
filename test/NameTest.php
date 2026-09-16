@@ -1,4 +1,6 @@
 <?php
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -66,7 +68,7 @@ class NameTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function fullname_provider()
+  static function fullname_provider()
   {
     $examples = array(new NameExample('foo', null, null, true, 'foo'),
                       new NameExample('foo', 'bar', null, true, 'bar.foo'),
@@ -88,9 +90,9 @@ class NameTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider fullname_provider
    * @param $ex
    */
+  #[DataProvider('fullname_provider')]
   function test_fullname($ex)
   {
     try
@@ -110,7 +112,7 @@ class NameTest extends \PHPUnit\Framework\TestCase
   /**
    * @return array
    */
-  function name_provider()
+  static function name_provider()
   {
     return array(array('a', true),
                  array('_', true),
@@ -122,10 +124,10 @@ class NameTest extends \PHPUnit\Framework\TestCase
   }
 
   /**
-   * @dataProvider name_provider
    * @param $name
    * @param $is_well_formed
    */
+  #[DataProvider('name_provider')]
   function test_name($name, $is_well_formed)
   {
     $this->assertEquals(AvroName::is_well_formed_name($name), $is_well_formed, $name ?? "null");
